@@ -1,0 +1,111 @@
+name: Shadow Atlas site
+
+# Builds Shadow Atlas and deploys it to GitHub Pages: main at the root, and every open pull request from this
+# repository at /pr-<number>/ as a temporary preview (it goes away when the pull request closes).
+# On GitHub Pages the page runs in live mode: address search (OpenStreetMap Nominatim), street tiles and
+# terrain come from online services.
+# A v* tag, or a run with a release tag, also publishes a release carrying shadow-atlas.html (single file,
+# live maps) and artifact.html (the claude.ai artifact body).
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Create a release with this tag (e.g. v1.0.0); leave empty to only deploy'
+        required: false
+        default: ''
+
+permissions: {}           # each job asks for what it needs
+
+concurrency:
+  group: pages            # one deploy at a time: each one carries main and all open previews
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # pull requests from forks get no preview (their code would run with this repository's token)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build the site (main + open pull requests)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          build() {   # build <git ref> <folder>: that version's own build script, so each preview is exactly its branch
+            local dir; dir=$(mktemp -d)
+            git worktree add --detach "$dir" "$1" >/dev/null
+            (cd "$dir" && npm ci --omit=dev --silent)
+            node "$dir/tools/build.js" "_site/$2"
+            rm -f "_site/$2/artifact.html"
+          }
+          git fetch --quiet origin main
+          build origin/main .
+          gh pr list --repo "$GITHUB_REPOSITORY" --state open --limit 50 --json number,headRefOid,isCrossRepository \
+            --jq '.[] | select(.isCrossRepository | not) | "\(.number) \(.headRefOid)"' |
+          while read -r n sha; do
+            git fetch --quiet origin "pull/$n/head"
+            build "$sha" "pr-$n"
+            echo "preview: pr-$n ($sha)"
+          done
+          ls -R _site | head -40
+      - name: Build the release files
+        run: |
+          npm ci --omit=dev --silent
+          node tools/build.js dist
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadow-atlas
+          path: |
+            dist/shadow-atlas.html
+            dist/artifact.html
+
+  deploy:
+    if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ github.event_name == 'pull_request' && github.event.action != 'closed' && format('{0}pr-{1}/', steps.deployment.outputs.page_url, github.event.number) || steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: shadow-atlas
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: |
+          gh release create "$TAG" shadow-atlas.html artifact.html \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Shadow Atlas $TAG" --generate-notes

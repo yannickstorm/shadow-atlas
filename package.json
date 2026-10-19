@@ -1,0 +1,15 @@
+{
+  "name": "shadow-atlas",
+  "private": true,
+  "description": "Eclipse planner: globe, sky, PeakFinder-style horizon view, street map and vantage-point finder",
+  "scripts": {
+    "build": "node tools/build.js _site",
+    "test": "node tests/test_app.js"
+  },
+  "dependencies": {
+    "astronomy-engine": "2.1.19"
+  },
+  "devDependencies": {
+    "playwright-core": "1.54.2"
+  }
+}
