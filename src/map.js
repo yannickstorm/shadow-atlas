@@ -1084,6 +1084,7 @@ class MapView {
       const tt = this.Ecl.mkTime(this.time), ob = new A.Observer(s.lat, s.lon, s.elev || 0), eq = A.Equator(body, tt, ob, true, true);
       hz = A.Horizon(tt, ob, eq.ra, eq.dec, 'normal');
     } catch (e) { return; }
+    this.bodyDir = { body, az: hz.azimuth, alt: hz.altitude, t: this.time };
     // screen direction of the azimuth: project a point a short way along the great circle
     const az = hz.azimuth * D2R, d = 0.02 * D2R, p1 = s.lat * D2R, l1 = s.lon * D2R;
     const p2 = Math.asin(Math.sin(p1) * Math.cos(d) + Math.cos(p1) * Math.sin(d) * Math.cos(az));

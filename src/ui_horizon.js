@@ -250,7 +250,7 @@ App.initFns.push(function () {
     if (S.tab === 'horizon') { loadAround(site); map.setView(site.lat, site.lon, Math.max(map.zoom, zoomFor(H.radius)), 'flat'); setTimeout(() => { face(); verdict(); }, 0); }
     else H.needLoad = true;
   });
-  App.on('time', t => { pano.setTime(t); if (S.tab === 'horizon') tb.update(); });
+  App.on('time', t => { pano.setTime(t); map.setTime(t); if (S.tab === 'horizon') tb.update(); });
   App.on('theme', t => { pano.setTheme(t); map.setTheme(t); });
   App.on('tzmode', () => { tb.update(); verdict(); pano.request(); });
   App.on('tab', t => {
@@ -260,5 +260,6 @@ App.initFns.push(function () {
     face(); verdict(); side();
   });
   if (S.site) { pano.setSite(S.site); map.setSite(S.site); }
+  if (S.time) map.setTime(S.time);
 });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

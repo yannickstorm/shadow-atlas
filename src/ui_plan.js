@@ -203,7 +203,8 @@ function build() {
   const mm = new G.MapView(host, App.D, Ecl); App.views.miniMap = mm; mm.setTheme(App.theme);
   mm.setLayers({ grid: false, tint: false, daynight: false, labels: false, shadow: false, cities: true, contours: true, bandAlpha: 0.2 });
   mm.on('pick', p => { const site = Calc.siteAt(p.lat, p.lon); App.setSite(site); });
-  mm.setEvent(S.ev, S.an, null, null); mm.setSite(S.site);
+  mm.setEvent(S.ev, S.an, null, null); mm.setSite(S.site); if (S.time) mm.setTime(S.time);
+  App.on('time', t => mm.setTime(t));
 }
 function renderAll() {
   if (!S.ev) return;
