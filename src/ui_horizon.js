@@ -102,15 +102,20 @@ App.initFns.push(function () {
   function verdict() {
     const el = $('#hzVerdict'); if (!S.ev || !S.site) return;
     const a = pano.analyze(), q = TS.quality(S.site.lat, S.site.lon);
-    const qual = `<div class="hz-q">Terrain detail here: ${TS.resLabel(q)}${q === 'coarse' ? ' (no detailed terrain for this area)' : ''}</div>`;
+    const B = G.BLD, bs = B ? B.stats() : null;
+    const bline = !G.LIVE ? 'Buildings: on the online version only (claude.ai blocks the map service).'
+      : B.state === 'loading' ? 'Loading buildings around you…'
+      : B.state === 'error' ? 'Buildings could not be loaded: OpenStreetMap (Overpass) did not answer. Try again later.'
+      : B.state === 'ready' ? (bs.n ? `Buildings within ${B.radius} m: ${bs.n.toLocaleString('en-GB')} from OpenStreetMap, ${bs.measured ? bs.measured.toLocaleString('en-GB') + ' with a recorded height, ' : ''}${bs.est.toLocaleString('en-GB')} estimated from their type. Trees are not included.` : `No buildings mapped within ${B.radius} m.`) : '';
+    const qual = `<div class="hz-q">Terrain detail here: ${TS.resLabel(q)}${q === 'coarse' ? ' (no detailed terrain for this area)' : ''}</div>${bline ? `<div class="hz-q">${esc(bline)}</div>` : ''}`;
     if (!a || !a.atMax) { el.innerHTML = `<div class="hc-t">HORIZON CHECK</div><div class="hc-v">No eclipse visible from this site</div>${qual}`; return; }
     const m = a.atMax, body = a.body, tz = App.tz();
     let head, cls;
     if (m.alt < -0.6 && m.sky.ang < 0.5) { head = `${body} below the horizon at maximum`; cls = 'bad'; }
-    else if (m.margin > 2) { head = `Clear: ${body} ${m.margin.toFixed(1)}° above the terrain`; cls = 'good'; }
+    else if (m.margin > 2) { head = `Clear: ${body} ${m.margin.toFixed(1)}° above the ${m.sky.bld ? 'buildings' : 'terrain'}`; cls = 'good'; }
     else if (m.margin > 0.3) { head = `Tight: only ${m.margin.toFixed(1)}° of clearance`; cls = 'warn'; }
-    else { head = `Blocked: terrain hides the ${body.toLowerCase()} at maximum`; cls = 'bad'; }
-    const ridge = !(m.sky.d > 0) ? '' : m.sky.h < 30 && m.sky.ang < 0.3 ? `Open, flat horizon toward ${Math.round(m.az)}° ${U.compass(m.az)} (sea or plain).` : `Terrain toward ${Math.round(m.az)}° ${U.compass(m.az)} tops out at ${m.sky.ang.toFixed(1)}°, a ${Math.round(m.sky.h).toLocaleString('en-GB')} m ridge ${(m.sky.d / 1000).toFixed(1)} km away.`;
+    else { head = `Blocked: ${m.sky.bld ? 'a building hides' : 'terrain hides'} the ${body.toLowerCase()} at maximum`; cls = 'bad'; }
+    const ridge = !(m.sky.d > 0) ? '' : m.sky.bld ? `${G.BLD.label(m.sky.bld)}, ${Math.round(m.sky.d)} m away toward ${Math.round(m.az)}° ${U.compass(m.az)}, rises to ${m.sky.ang.toFixed(1)}° above your eye.` : m.sky.h < 30 && m.sky.ang < 0.3 ? `Open, flat horizon toward ${Math.round(m.az)}° ${U.compass(m.az)} (sea or plain).` : `Terrain toward ${Math.round(m.az)}° ${U.compass(m.az)} tops out at ${m.sky.ang.toFixed(1)}°, a ${Math.round(m.sky.h).toLocaleString('en-GB')} m ridge ${(m.sky.d / 1000).toFixed(1)} km away.`;
     const segs = a.segs.length ? a.segs.map(s => U.hm(s.a, tz) + '–' + U.hm(s.b, tz)).join(', ') : 'never';
     const keyVis = a.marks.filter(k => k.n !== 'MAX').map(k => `<span class="${k.vis ? 'ok' : 'no'}">${k.n}</span>`).join('');
     el.innerHTML = `<div class="hc-t">HORIZON CHECK · ${esc(S.site.name.split(',')[0])}</div><div class="hc-v ${cls}">${esc(head)}</div>
@@ -235,6 +240,7 @@ App.initFns.push(function () {
   let loadTok = 0;
   function loadAround(site) {
     const tok = ++loadTok, ld = $('#hzLoading'); ld.hidden = false;
+    if (G.BLD && G.LIVE) { G.BLD.load(site).then(() => { if (tok !== loadTok) return; pano.invalidate(); verdict(); map.request(); App.views.map && App.views.map.request(); }); setTimeout(verdict, 0); }
     TS.ensureAround(site.lat, site.lon, 30).then(() => {
       if (tok !== loadTok) return; pano.invalidate(); verdict();
       return TS.ensureAround(site.lat, site.lon, 240);

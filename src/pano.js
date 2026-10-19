@@ -54,7 +54,10 @@ class PanoView {
   skyAt(az) {
     const k = Math.round(((az % 360) + 360) % 360 * 10);
     if (this.skyCache.has(k)) return this.skyCache.get(k);
-    const r = PanoView.ray(this.site.lat, this.site.lon, this.h0(), k / 10, 250000);
+    let r = PanoView.ray(this.site.lat, this.site.lon, this.h0(), k / 10, 250000);
+    // a nearby building can stand higher than the terrain behind it
+    const b = G.BLD && G.BLD.angleAt(this.site, this.h0(), k / 10);
+    if (b && b.ang > r.ang) r = { ang: b.ang, d: b.d, h: b.top, bld: b };
     this.skyCache.set(k, r); return r;
   }
   static ray(lat0, lon0, h0, az, dmax, stopAbove) {
@@ -166,6 +169,7 @@ class PanoView {
     if (sky && sky.total) { const tg = c.createLinearGradient(0, this.yOf(12), 0, this.yOf(0)); tg.addColorStop(0, 'rgba(236,122,66,0)'); tg.addColorStop(1, 'rgba(236,122,66,0.55)'); c.fillStyle = tg; c.fillRect(0, 0, W, this.yOf(0)); }
     this._terrain(L, Hz);
     c.drawImage(this.tcv, 0, 0, W, H);
+    if (this._buildings(L)) c.drawImage(this.bcv, 0, 0, W, H);
     this._overlay(c, L);
   }
   _terrain(L, haze) {
@@ -221,6 +225,49 @@ class PanoView {
       this.skyline[x] = best; this.skyD[x] = bd; this.skyH[x] = bh;
     }
     this.tctx.putImageData(this.img, 0, 0);
+  }
+  /* buildings around the site (OpenStreetMap), drawn column by column in front of the terrain */
+  _buildings(L) {
+    const B = G.BLD; if (!B || !B.list.length) return false;
+    const W = this.cw, H = this.ch, dpr = this.dpr, o = this.opts;
+    const key = [W, H, dpr, o.az0.toFixed(3), o.fov.toFixed(3), o.altC.toFixed(3), o.vx, o.eye, this.site.lat, this.site.lon, B.version, Math.round(L * 20), this.theme].join('|');
+    if (key === this.bkey) return this.bOn;
+    this.bkey = key;
+    if (!this.bcv) { this.bcv = document.createElement('canvas'); this.bctx = this.bcv.getContext('2d'); }
+    if (this.bcv.width !== Math.round(W * dpr)) { this.bcv.width = Math.round(W * dpr); this.bcv.height = Math.round(H * dpr); }
+    const c = this.bctx; c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, W, H);
+    const h0 = this.h0(), nf = clamp((0.5 - L) / 0.35, 0, 1), step = 2;
+    let any = false, prev = null; const spans = new Map();
+    for (let x = 0; x < W; x += step) {
+      const r = B.angleAt(this.site, h0, ((this.azOf(x + step / 2) % 360) + 360) % 360);
+      if (!r) { prev = null; continue; }
+      const y1 = this.yOf(r.ang), y2 = Math.min(H - 22, this.yOf(Math.atan((r.b.base + r.b.minH - h0) / r.d) * R2D));
+      if (y2 <= y1) { prev = null; continue; }
+      any = true;
+      // facade colour: lit by daylight, slate at night; nearer buildings a little darker; estimated heights paler
+      const f = clamp(r.d / 500, 0, 1), day = [176 - 30 * (1 - f), 158 - 26 * (1 - f), 142 - 22 * (1 - f)], night = [92 + 30 * f, 100 + 30 * f, 124 + 30 * f];
+      const k = 0.55 + 0.45 * L, col = day.map((v, i) => Math.round((v * k) * (1 - nf) + night[i] * nf + (r.est ? 12 : 0)));
+      c.fillStyle = `rgb(${col})`; c.fillRect(x, y1, step + 0.6, y2 - y1);
+      // floor lines every 3 m when they are far enough apart to read
+      const fl = Math.abs(this.yOf(Math.atan((r.b.base + 3 - h0) / r.d) * R2D) - this.yOf(Math.atan((r.b.base - h0) / r.d) * R2D));
+      if (fl > 5) { c.fillStyle = 'rgba(40,32,28,0.22)'; for (let z = r.b.base + r.b.minH + 3; z < r.top - 1; z += 3) { const yy = this.yOf(Math.atan((z - h0) / r.d) * R2D); if (yy > y1 && yy < y2) c.fillRect(x, yy, step + 0.6, 1); } }
+      c.fillStyle = nf > 0.3 ? 'rgba(230,238,252,0.9)' : 'rgba(30,24,20,0.8)'; c.fillRect(x, y1, step + 0.6, 1.6);        // roof line
+      if (prev && prev.b !== r.b) { c.fillRect(x, Math.min(y1, prev.y1), 1.2, Math.abs(y1 - prev.y1) + 1); }               // wall edge
+      prev = { b: r.b, y1 };
+      const sp = spans.get(r.b) || { x0: x, x1: x, y: y1, r }; sp.x1 = x; sp.y = Math.min(sp.y, y1); spans.set(r.b, sp);
+    }
+    // name, height and distance of the larger buildings in view
+    c.font = '600 11px "Hanken Grotesk", system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    const used = [];
+    for (const sp of [...spans.values()].filter(v => v.x1 - v.x0 > 40).sort((a, b) => (b.x1 - b.x0) - (a.x1 - a.x0)).slice(0, 6)) {
+      const r = sp.r, t = `${r.b.name || (r.b.type === 'yes' ? 'Building' : r.b.type.replace(/_/g, ' '))} · ${Math.round(r.h)} m${r.est ? '?' : ''} · ${Math.round(r.d)} m away`;
+      const x = (sp.x0 + sp.x1) / 2, y = clamp(sp.y + 16, 104, H - 40), w = c.measureText(t).width + 12;
+      if (used.some(u => Math.abs(u[0] - x) < (u[1] + w) / 2 && Math.abs(u[2] - y) < 20)) continue;
+      used.push([x, w, y]);
+      c.fillStyle = 'rgba(8,12,24,0.66)'; c.fillRect(x - w / 2, y - 10, w, 20); c.fillStyle = '#fff'; c.fillText(t, x, y);
+    }
+    this.bOn = any;
+    return any;
   }
   _ridge(px, tw, th, x, y, d, col, hz, sky) {
     const yi = Math.ceil(y); if (yi < 0 || yi >= th) return;

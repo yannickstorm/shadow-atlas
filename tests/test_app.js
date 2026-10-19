@@ -33,6 +33,7 @@ async function mockServices(ctx, hits) {
     if (host === 'nominatim.openstreetmap.org') return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify([
       { lat: '36.0135', lon: '-5.6046', name: '', display_name: '12, Calle Sancho IV el Bravo, Tarifa, Cádiz, Andalusia, 11380, Spain', addresstype: 'building',
         address: { house_number: '12', road: 'Calle Sancho IV el Bravo', town: 'Tarifa', state: 'Andalusia', country: 'Spain' } }]) });
+    if (u.includes('/api/interpreter')) return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: fs.readFileSync(path.join(MOCK, 'overpass.json')) });
     return route.abort();      // fonts and anything else: not needed for the tests
   });
 }
@@ -88,6 +89,10 @@ async function page(browser, opts = {}) {
     await p.evaluate(() => App.setTab('horizon')); await p.waitForTimeout(5000);
     const t = await p.evaluate(() => ({ q: TS.quality(App.S.site.lat, App.S.site.lon), n: TS.loaded || 0 }));
     check(t.q === 'fine' && t.n > 0, `detailed terrain loaded from elevation tiles (${t.n} cells)`);
+    const bl = await p.evaluate(() => ({ state: BLD.state, n: BLD.list.length, home: BLD.list.filter(b => b.home).length, verdict: document.querySelector('#hzVerdict').innerText }));
+    check(bl.state === 'ready' && bl.n === 4 && bl.home === 1, `buildings loaded (${bl.n}, the one at the site ignored)`);
+    check(/Blocked: a building hides the sun/.test(bl.verdict) && /Torre de prueba \(60 m\)/.test(bl.verdict), 'verdict names the building that blocks the Sun');
+    check(await p.evaluate(() => App.views.pano.bOn === true), 'buildings drawn in the panorama');
     check(errors.length === 0, 'no page errors' + (errors.length ? ': ' + errors[0] : ''));
     await ctx.close();
   }

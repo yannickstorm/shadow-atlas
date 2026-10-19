@@ -6,7 +6,7 @@
 const fs = require('fs'), path = require('path');
 const ROOT = path.resolve(__dirname, '..'), OUT = path.resolve(process.argv[2] || 'dist');
 const rd = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
-const order = ['engine', 'data', 'terrain_hr', 'streets', 'places', 'calc', 'ui_util', 'charts', 'map', 'sky', 'pano', 'ui_main', 'ui_time', 'ui_earth', 'ui_sky', 'ui_horizon', 'ui_site', 'ui_charts', 'ui_plan'];
+const order = ['engine', 'data', 'terrain_hr', 'streets', 'places', 'buildings', 'calc', 'ui_util', 'charts', 'map', 'sky', 'pano', 'ui_main', 'ui_time', 'ui_earth', 'ui_sky', 'ui_horizon', 'ui_site', 'ui_charts', 'ui_plan'];
 const ae = fs.readFileSync(path.join(ROOT, 'node_modules/astronomy-engine/astronomy.browser.min.js'), 'utf8');
 const head = `<title>Shadow Atlas</title>
 <meta name="claude:viewport-fit-sides" content="cover">

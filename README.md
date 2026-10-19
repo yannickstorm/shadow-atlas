@@ -10,13 +10,13 @@ vantage-point finder that searches the terrain around you for a clear view of to
 | `data/` | Data built into the page: terrain grid, coasts, cities, stars, eclipse catalogue (`packed.json`, `catalog.json`) and the manifests of the map bundles used on claude.ai |
 | `tools/build.js` | `node tools/build.js OUT_DIR` writes `index.html` (standalone), `shadow-atlas.html` (same file, for the download button) and `artifact.html` (claude.ai artifact body) |
 | `tools/data/` | Scripts that made the data and the map bundles (Terrarium elevation, Overture Maps / OpenStreetMap roads and places, Natural Earth). They expect the raw downloads in `data/` |
-| `tests/` | `node tests/test_app.js`: headless-Chrome tests (all 913 eclipses, every tab, live address search, street tiles and terrain, the claude.ai mode). Online services are replaced by the images in `tests/mock/` |
+| `tests/` | `node tests/test_app.js`: headless-Chrome tests (all 913 eclipses, every tab, live address search, street tiles, terrain and buildings, the claude.ai mode). Online services are replaced by the images in `tests/mock/` |
 
 ## Where it runs
 
 - **Online:** GitHub Pages deploys `main` (`.github/workflows/pages.yml`); pull requests get a preview at `/pr-<number>/`.
   There the page runs in **live mode**: address search with OpenStreetMap (Nominatim, Photon as a fallback), street
-  tiles everywhere (the OpenStreetMap standard map, darkened in the dark theme) and detailed terrain for any place (Terrarium elevation tiles).
+  tiles everywhere (the OpenStreetMap standard map, darkened in the dark theme) and detailed terrain for any place (Terrarium elevation tiles). The Horizon view also loads the buildings within 500 m from OpenStreetMap (Overpass) and shows when one hides the Sun or Moon; heights come from the height or floor tags, or are estimated from the building type.
 - **Offline file:** each release carries `shadow-atlas.html`, the same single file. Open it in a browser, or put it on
   your own server (for example next to the plotter bridge). Live mode needs an internet connection.
 - **claude.ai artifact:** claude.ai blocks online map services, so the artifact uses map data shipped next to the page:

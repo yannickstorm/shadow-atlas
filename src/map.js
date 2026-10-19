@@ -186,7 +186,7 @@ class MapView {
     this.lon0 = ((this.lon0 - dx * k + 540) % 360) - 180;
   }
   setZoom(z, anchor, px, py) {
-    const max = this.mode === 'globe' ? 14 : (G.ST && G.ST.hasData() && this.layers.style === 'streets' ? 9000 : 320), min = this.mode === 'globe' ? 0.7 : 1;
+    const max = this.mode === 'globe' ? 14 : (G.ST && G.ST.hasData() && this.layers.style === 'streets' ? 40000 : 320), min = this.mode === 'globe' ? 0.7 : 1;
     this.zoom = clamp(z, min, max);
     if (anchor && this.mode === 'flat') {      // keep anchor under cursor
       const cs = Math.cos(this.stdPar), ppd = this.ppd;
@@ -1110,9 +1110,39 @@ class MapView {
     c.strokeText(txt, tx, by); c.fillStyle = this.theme === 'dark' ? '#f2f4f8' : '#1e2430'; c.fillText(txt, tx, by);
     c.restore();
   }
+  /* buildings around the site (live mode); the one toward the Sun/Moon is red when it blocks the view */
+  _drawBuildings(c, s) {
+    const B = G.BLD; if (!B || !B.list.length || this.mode !== 'flat' || this.ppd < 1200 || !B.site || Math.abs(B.site.lat - s.lat) > 1e-5 || Math.abs(B.site.lon - s.lon) > 1e-5) return;
+    let hit = null;
+    if (this.bodyDir) {
+      const h0 = Math.max(G.TS ? G.TS.at(s.lat, s.lon) : 0, s.elev || 0) + 2, r = B.angleAt(s, h0, this.bodyDir.az);
+      if (r) hit = { b: r.b, blocks: r.ang > this.bodyDir.alt };
+    }
+    const dark = this.theme === 'dark';
+    c.save(); c.lineJoin = 'round';
+    for (const b of B.list) {
+      if (b.part) continue;
+      c.beginPath();
+      b.pts.forEach((p, i) => { const q = this.project(p[0], p[1]); if (i) c.lineTo(q[0], q[1]); else c.moveTo(q[0], q[1]); });
+      c.closePath();
+      const isHit = hit && hit.b === b;
+      c.fillStyle = isHit ? (hit.blocks ? 'rgba(226,72,60,0.6)' : 'rgba(240,169,62,0.45)') : dark ? 'rgba(170,180,200,0.22)' : 'rgba(120,100,90,0.22)';
+      c.fill();
+      c.strokeStyle = isHit ? (hit.blocks ? '#c8322a' : '#d98a12') : dark ? 'rgba(200,210,230,0.45)' : 'rgba(110,90,80,0.5)';
+      c.lineWidth = isHit ? 2 : 0.8; c.stroke();
+    }
+    if (hit && hit.blocks && this.ppd >= 2500) {
+      const q = this.project(hit.b.lat, hit.b.lon);
+      c.font = '700 11px "Hanken Grotesk", system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      const t = (hit.b.name || 'Blocks the ' + this.bodyDir.body.toLowerCase()) + ' · ' + Math.round(hit.b.h) + ' m' + (hit.b.est ? '?' : '');
+      c.lineWidth = 3; c.strokeStyle = dark ? 'rgba(6,11,26,0.85)' : 'rgba(255,255,255,0.92)'; c.strokeText(t, q[0], q[1]); c.fillStyle = '#c8322a'; c.fillText(t, q[0], q[1]);
+    }
+    c.restore();
+  }
   _drawSite(c) {
     const s = this.site, q = this.project(s.lat, s.lon);
     if (!q[2]) return;
+    this._drawBuildings(c, s);
     if (this.layers.bodyArrow !== false) this._drawBodyArrow(c, s, q);
     const dark = this.theme === 'dark', acc = dark ? '#f4c25b' : '#b4690e';
     c.strokeStyle = acc; c.lineWidth = 2; c.fillStyle = dark ? '#0b1020' : '#fff';
