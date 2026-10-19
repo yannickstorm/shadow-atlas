@@ -29,7 +29,7 @@ async function mockServices(ctx, hits) {
   await ctx.route(/^https:\/\//, route => {
     const u = route.request().url(), host = new URL(u).hostname; hits[host] = (hits[host] || 0) + 1;
     if (u.includes('elevation-tiles')) return route.fulfill({ status: 200, contentType: 'image/png', headers: cors, body: fs.readFileSync(path.join(MOCK, 'terr.png')) });
-    if (host.endsWith('cartocdn.com') || host === 'tile.openstreetmap.org') return route.fulfill({ status: 200, contentType: 'image/png', headers: cors, body: fs.readFileSync(path.join(MOCK, 'street.png')) });
+    if (host === 'tile.openstreetmap.org') return route.fulfill({ status: 200, contentType: 'image/png', headers: cors, body: fs.readFileSync(path.join(MOCK, 'street.png')) });
     if (host === 'nominatim.openstreetmap.org') return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify([
       { lat: '36.0135', lon: '-5.6046', name: '', display_name: '12, Calle Sancho IV el Bravo, Tarifa, Cádiz, Andalusia, 11380, Spain', addresstype: 'building',
         address: { house_number: '12', road: 'Calle Sancho IV el Bravo', town: 'Tarifa', state: 'Andalusia', country: 'Spain' } }]) });
@@ -84,7 +84,7 @@ async function page(browser, opts = {}) {
     const st = await p.evaluate(() => ({ name: App.S.site.name, lat: App.S.site.lat, tiles: App.views.map.tilesOn, mode: App.views.map.mode, zoom: App.views.map.zoom }));
     check(/Sancho IV el Bravo 12, Tarifa/.test(st.name) && Math.abs(st.lat - 36.0135) < 1e-3, `site set to the address (${st.name})`);
     check(st.mode === 'flat' && st.zoom > 1000 && st.tiles, 'map zooms to street level with street tiles');
-    check((hits['a.basemaps.cartocdn.com'] || 0) + (hits['b.basemaps.cartocdn.com'] || 0) + (hits['c.basemaps.cartocdn.com'] || 0) + (hits['d.basemaps.cartocdn.com'] || 0) > 0, 'street tiles requested');
+    check((hits['tile.openstreetmap.org'] || 0) > 0, 'OpenStreetMap street tiles requested');
     await p.evaluate(() => App.setTab('horizon')); await p.waitForTimeout(5000);
     const t = await p.evaluate(() => ({ q: TS.quality(App.S.site.lat, App.S.site.lon), n: TS.loaded || 0 }));
     check(t.q === 'fine' && t.n > 0, `detailed terrain loaded from elevation tiles (${t.n} cells)`);

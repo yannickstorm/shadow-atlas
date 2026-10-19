@@ -429,7 +429,7 @@ function initLive() {
   if (G.LIVE) { btn.querySelector('.live-dot').hidden = false; btn.title = 'Live maps are on'; }
   const draw = (msg) => {
     pop.innerHTML = G.LIVE
-      ? `<h3>Live maps are on</h3><p>Address search uses OpenStreetMap, the street map loads OpenStreetMap tiles everywhere, and terrain comes straight from elevation tiles. You need an internet connection.</p><p class="src">Nominatim · CARTO · AWS Terrarium</p>`
+      ? `<h3>Live maps are on</h3><p>Address search uses OpenStreetMap, the street map loads OpenStreetMap tiles everywhere, and terrain comes straight from elevation tiles. You need an internet connection.</p><p class="src">Nominatim · OpenStreetMap tiles · AWS Terrarium</p>`
       : `<h3>Live street maps and address search</h3><p>claude.ai blocks online map services, so this page uses the street data built into it: detailed along the 2027 and 2028 totality paths, main roads elsewhere.</p><p>Download the app and open the file in your browser, or put it on your plotter bridge. There it finds any address with OpenStreetMap, shows a full street map everywhere and loads detailed terrain for any place.</p>${msg ? `<p class="src">${esc(msg)}</p>` : ''}<button class="btn primary" id="liveDl">Download the app</button>`;
     const b = $('#liveDl'); if (b) b.addEventListener('click', download);
   };

@@ -16,7 +16,7 @@ vantage-point finder that searches the terrain around you for a clear view of to
 
 - **Online:** GitHub Pages deploys `main` (`.github/workflows/pages.yml`); pull requests get a preview at `/pr-<number>/`.
   There the page runs in **live mode**: address search with OpenStreetMap (Nominatim, Photon as a fallback), street
-  tiles everywhere (OpenStreetMap data, CARTO styles) and detailed terrain for any place (Terrarium elevation tiles).
+  tiles everywhere (the OpenStreetMap standard map, darkened in the dark theme) and detailed terrain for any place (Terrarium elevation tiles).
 - **Offline file:** each release carries `shadow-atlas.html`, the same single file. Open it in a browser, or put it on
   your own server (for example next to the plotter bridge). Live mode needs an internet connection.
 - **claude.ai artifact:** claude.ai blocks online map services, so the artifact uses map data shipped next to the page:
@@ -33,5 +33,5 @@ npm test             # needs Chrome or Chromium (set CHROME=/path/to/chrome if i
 
 To publish a release, push a `v*` tag or run the Pages workflow with a release tag.
 
-Map data © OpenStreetMap contributors (via Overture Maps), © CARTO, Natural Earth. Elevation: Terrarium tiles (AWS
+Map data © OpenStreetMap contributors (via Overture Maps and the OpenStreetMap tile servers), Natural Earth. Elevation: Terrarium tiles (AWS
 Open Data). Astronomy Engine © Don Cross (MIT).

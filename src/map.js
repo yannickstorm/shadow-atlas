@@ -804,39 +804,32 @@ class MapView {
       } else if (this._label(c, t.name, q[0], q[1], col, 'center')) n++;
     }
   }
-  /* live street tiles (OpenStreetMap data, CARTO styles; OpenStreetMap's own tiles as a fallback) */
-  _tileUrl(z, x, y, prov) {
-    const r = this.dpr > 1 ? '@2x' : '', sd = 'abcd'[(x + y) % 4];
-    if (prov === 0) return `https://${sd}.basemaps.cartocdn.com/${this.theme === 'dark' ? 'dark_all' : 'rastertiles/voyager'}/${z}/${x}/${y}${r}.png`;
-    return `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
-  }
+  /* live street tiles: OpenStreetMap's standard map (no key needed); darkened with a filter in the dark theme */
+  _tileUrl(z, x, y) { return `https://tile.openstreetmap.org/${z}/${x}/${y}.png`; }
   _tile(z, x, y) {
     if (!this.tileCache) { this.tileCache = new Map(); this.tileProv = 0; this.tileErr = 0; this.tileOk = 0; }
-    const key = this.theme + this.tileProv + '/' + z + '/' + x + '/' + y;
+    const key = z + '/' + x + '/' + y;
     let t = this.tileCache.get(key);
     if (t) return t.ok ? t.img : null;
     const img = new Image(); t = { img, ok: false }; this.tileCache.set(key, t);
     img.onload = () => { t.ok = true; this.tileOk++; this.request(); };
     img.onerror = () => {
       this.tileErr++;
-      if (!this.tileOk && this.tileErr > 6) {
-        if (this.tileProv === 0) { this.tileProv = 1; this.tileErr = 0; }          // CARTO unreachable: try OpenStreetMap's tiles
-        else { this._tilesFailed = true; this.dirtyBase = true; }                // offline: back to the built-in street map
-        this.request();
-      }
+      if (!this.tileOk && this.tileErr > 6) { this._tilesFailed = true; this.dirtyBase = true; this.request(); }   // offline: back to the built-in street map
     };
-    img.src = this._tileUrl(z, x, y, this.tileProv);
+    img.src = this._tileUrl(z, x, y);
     if (this.tileCache.size > 900) { const k0 = this.tileCache.keys().next().value; this.tileCache.delete(k0); }
     return null;
   }
   _drawTiles(c, view) {
     const W = this.cw, H = this.ch, cx = W / 2, cy = H / 2, ppd = this.ppd, cs = Math.cos(this.stdPar), kx = cs * ppd;
-    const z = clamp(Math.round(Math.log2(360 * kx / 256) + 0.15), 1, this.tileProv === 1 ? 19 : 20), N = 1 << z;
+    const z = clamp(Math.round(Math.log2(360 * kx / 256) + 0.15), 1, 19), N = 1 << z;
     const mY = lat => { const s = Math.sin(clamp(lat, -85.05, 85.05) * D2R); return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * PI); };
     const tLat = y => Math.atan(Math.sinh(PI * (1 - 2 * y / N))) * R2D;
     const x0 = Math.floor((view.lon0 + 180) / 360 * N), x1 = Math.floor((view.lon1 + 180) / 360 * N);
     const y0 = clamp(Math.floor(mY(view.lat1) * N), 0, N - 1), y1 = clamp(Math.floor(mY(view.lat0) * N), 0, N - 1);
     c.save(); c.imageSmoothingEnabled = true;
+    if (this.theme === 'dark') c.filter = 'invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.85) saturate(0.6)';
     for (let ty = y0; ty <= y1; ty++) {
       const latT = tLat(ty), latB = tLat(ty + 1), sy = cy - (latT - this.lat0) * ppd, ey = cy - (latB - this.lat0) * ppd;
       for (let tx = x0; tx <= x1; tx++) {
@@ -844,7 +837,7 @@ class MapView {
         const wx = ((tx % N) + N) % N;
         let img = this._tile(z, wx, ty), sub = null;
         if (!img) for (let d = 1; d <= 4 && z - d >= 1; d++) {        // while loading, stretch a coarser tile that is already here
-          const pz = z - d, px = wx >> d, py = ty >> d, k = this.theme + this.tileProv + '/' + pz + '/' + px + '/' + py, t = this.tileCache.get(k);
+          const pz = z - d, px = wx >> d, py = ty >> d, k = pz + '/' + px + '/' + py, t = this.tileCache.get(k);
           if (t && t.ok) { const f = 1 << d, s = t.img.naturalWidth / f; img = t.img; sub = [(wx - px * f) * s, (ty - py * f) * s, s, s]; break; }
         }
         if (!img) { c.fillStyle = this.theme === 'dark' ? '#1a1f2a' : '#efece6'; c.fillRect(sx, sy, w + 0.5, ey - sy + 0.5); continue; }
@@ -853,12 +846,12 @@ class MapView {
       }
     }
     // day/night and the Moon's shadow, carried by the base raster, darken the tiles
-    c.globalCompositeOperation = 'multiply'; c.drawImage(this.base, 0, 0, W, H);
+    c.filter = 'none'; c.globalCompositeOperation = 'multiply'; c.drawImage(this.base, 0, 0, W, H);
     c.restore();
   }
   _drawAttribution(c) {
     const ppd = this._ppdNow(); if (ppd < 6) return;
-    const t = this.tilesOn ? '© OpenStreetMap contributors · © CARTO' : G.ST && G.ST.coverage && this.mode === 'flat' && ppd >= 60 && G.ST.coverage(this.lat0, this.lon0) ? '© OpenStreetMap contributors · Overture Maps · Natural Earth' : 'Natural Earth · Overture Maps';
+    const t = this.tilesOn ? '© OpenStreetMap contributors' : G.ST && G.ST.coverage && this.mode === 'flat' && ppd >= 60 && G.ST.coverage(this.lat0, this.lon0) ? '© OpenStreetMap contributors · Overture Maps · Natural Earth' : 'Natural Earth · Overture Maps';
     c.font = '500 9.5px "Hanken Grotesk", system-ui, sans-serif'; c.textAlign = 'right'; c.textBaseline = 'bottom';
     const w = c.measureText(t).width + 10;
     c.fillStyle = this.theme === 'dark' ? 'rgba(6,11,26,0.6)' : 'rgba(255,255,255,0.7)'; c.fillRect(this.cw - w, this.ch - 15, w, 15);
