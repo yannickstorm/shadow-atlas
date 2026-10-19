@@ -1075,9 +1075,44 @@ class MapView {
       if (this._label(c, ct.name, q[0] + 5, q[1], dark ? 'rgba(255,255,255,0.92)' : 'rgba(14,21,48,0.92)', 'left')) n++;
     }
   }
+  /* arrow from the site toward the Sun (solar eclipse or no event) or the Moon (lunar eclipse) at the current time */
+  _drawBodyArrow(c, s, q) {
+    const A = G.Astronomy; if (!A || !isFinite(this.time)) return;
+    const body = this.ev && this.ev.kind === 'lunar' ? 'Moon' : 'Sun';
+    let hz;
+    try {
+      const tt = this.Ecl.mkTime(this.time), ob = new A.Observer(s.lat, s.lon, s.elev || 0), eq = A.Equator(body, tt, ob, true, true);
+      hz = A.Horizon(tt, ob, eq.ra, eq.dec, 'normal');
+    } catch (e) { return; }
+    // screen direction of the azimuth: project a point a short way along the great circle
+    const az = hz.azimuth * D2R, d = 0.02 * D2R, p1 = s.lat * D2R, l1 = s.lon * D2R;
+    const p2 = Math.asin(Math.sin(p1) * Math.cos(d) + Math.cos(p1) * Math.sin(d) * Math.cos(az));
+    const l2 = l1 + Math.atan2(Math.sin(az) * Math.sin(d) * Math.cos(p1), Math.cos(d) - Math.sin(p1) * Math.sin(p2));
+    const q2 = this.project(p2 * R2D, l2 * R2D);
+    let dx = q2[0] - q[0], dy = q2[1] - q[1]; const n = Math.hypot(dx, dy); if (!(n > 1e-9)) return;
+    dx /= n; dy /= n;
+    const up = hz.altitude > -0.8, L = 74, x0 = q[0] + dx * 15, y0 = q[1] + dy * 15, x1 = q[0] + dx * L, y1 = q[1] + dy * L;
+    const col = body === 'Sun' ? '#ffb020' : (this.theme === 'dark' ? '#cfd8ea' : '#55607a');
+    c.save(); c.lineCap = 'round';
+    c.strokeStyle = this.theme === 'dark' ? 'rgba(6,11,26,0.75)' : 'rgba(255,255,255,0.9)'; c.lineWidth = 6; c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke();
+    c.strokeStyle = col; c.lineWidth = 3; c.setLineDash(up ? [] : [5, 5]); c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke(); c.setLineDash([]);
+    const hx = -dy, hy = dx, hl = 11;
+    c.fillStyle = col; c.beginPath(); c.moveTo(x1 + dx * 4, y1 + dy * 4); c.lineTo(x1 - dx * hl + hx * 6, y1 - dy * hl + hy * 6); c.lineTo(x1 - dx * hl - hx * 6, y1 - dy * hl - hy * 6); c.closePath(); c.fill();
+    // body symbol at the tip
+    const bx = x1 + dx * 13, by = y1 + dy * 13;
+    c.beginPath(); c.arc(bx, by, 6, 0, PI * 2); c.fillStyle = up ? col : 'rgba(128,128,128,0.6)'; c.fill();
+    c.lineWidth = 1.5; c.strokeStyle = this.theme === 'dark' ? 'rgba(6,11,26,0.85)' : 'rgba(255,255,255,0.95)'; c.stroke();
+    c.font = '600 11px "Hanken Grotesk", system-ui, sans-serif'; c.textBaseline = 'middle';
+    const txt = body + ' ' + Math.round(hz.altitude) + '° · ' + Math.round(hz.azimuth) + '°' + (up ? '' : ' (below horizon)');
+    const right = dx >= 0, tx = bx + (right ? 10 : -10);
+    c.textAlign = right ? 'left' : 'right'; c.lineWidth = 3; c.strokeStyle = this.theme === 'dark' ? 'rgba(6,11,26,0.85)' : 'rgba(255,255,255,0.92)';
+    c.strokeText(txt, tx, by); c.fillStyle = this.theme === 'dark' ? '#f2f4f8' : '#1e2430'; c.fillText(txt, tx, by);
+    c.restore();
+  }
   _drawSite(c) {
     const s = this.site, q = this.project(s.lat, s.lon);
     if (!q[2]) return;
+    if (this.layers.bodyArrow !== false) this._drawBodyArrow(c, s, q);
     const dark = this.theme === 'dark', acc = dark ? '#f4c25b' : '#b4690e';
     c.strokeStyle = acc; c.lineWidth = 2; c.fillStyle = dark ? '#0b1020' : '#fff';
     c.beginPath(); c.arc(q[0], q[1], 7, 0, PI * 2); c.fill(); c.stroke();

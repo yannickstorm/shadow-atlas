@@ -27,7 +27,7 @@ App.initFns.push(function () {
   const tb = new App.TimeBar($('#tbEarth'), 'earth'); App.views.tbEarth = tb;
 
   /* layers menu */
-  const LAYERS = [['relief', 'Relief shading'], ['borders', 'Coast & borders'], ['grid', 'Graticule'], ['cities', 'Cities'], ['contours', 'Elevation contours'], ['tint', 'Partial-eclipse zones'], ['daynight', 'Day / night'], ['labels', 'Country names']];
+  const LAYERS = [['relief', 'Relief shading'], ['borders', 'Coast & borders'], ['grid', 'Graticule'], ['cities', 'Cities'], ['contours', 'Elevation contours'], ['tint', 'Partial-eclipse zones'], ['daynight', 'Day / night'], ['labels', 'Country names'], ['bodyArrow', 'Sun / Moon direction']];
   const menu = $('#mMenu');
   const style0 = U.store.get('mapStyle', 'streets');
   map.setLayers({ style: style0 });
