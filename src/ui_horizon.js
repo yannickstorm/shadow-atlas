@@ -104,7 +104,7 @@ App.initFns.push(function () {
     const a = pano.analyze(), q = TS.quality(S.site.lat, S.site.lon);
     const B = G.BLD, bs = B ? B.stats() : null;
     const bline = !G.LIVE ? 'Buildings: on the online version only (claude.ai blocks the map service).'
-      : B.state === 'loading' ? 'Loading buildings around you…'
+      : B.state === 'loading' ? (B.focusDone ? `Buildings toward the ${S.ev && S.ev.kind === 'lunar' ? 'Moon' : 'Sun'} loaded (${bs.n.toLocaleString('en-GB')}). Loading the rest of the circle…` : `Loading buildings toward the ${S.ev && S.ev.kind === 'lunar' ? 'Moon' : 'Sun'} first… ${bs.n ? bs.n.toLocaleString('en-GB') + ' so far.' : ''}`)
       : B.state === 'error' ? 'Buildings could not be loaded: OpenStreetMap (Overpass) did not answer. Try again later.'
       : B.state === 'ready' ? (bs.n ? `Buildings within ${B.radius} m: ${bs.n.toLocaleString('en-GB')} from OpenStreetMap, ${bs.measured ? bs.measured.toLocaleString('en-GB') + ' with a recorded height, ' : ''}${bs.est.toLocaleString('en-GB')} estimated from their type. Trees are not included.` : `No buildings mapped within ${B.radius} m.`) : '';
     const qual = `<div class="hz-q">Terrain detail here: ${TS.resLabel(q)}${q === 'coarse' ? ' (no detailed terrain for this area)' : ''}</div>${bline ? `<div class="hz-q">${esc(bline)}</div>` : ''}`;
@@ -240,7 +240,27 @@ App.initFns.push(function () {
   let loadTok = 0;
   function loadAround(site) {
     const tok = ++loadTok, ld = $('#hzLoading'); ld.hidden = false;
-    if (G.BLD && G.LIVE) { G.BLD.load(site).then(() => { if (tok !== loadTok) return; pano.invalidate(); verdict(); map.request(); App.views.map && App.views.map.request(); }); setTimeout(verdict, 0); }
+    if (G.BLD && G.LIVE) {
+      // the directions the Sun or Moon takes during the eclipse are loaded first
+      let focus = null;
+      try {
+        const a = pano.analyze(), azs = a ? a.marks.map(k => k.az).concat(a.atMax ? [a.atMax.az] : []).map(v => ((v % 360) + 360) % 360).sort((x, y) => x - y) : [];
+        if (azs.length) {
+          let gi = azs.length - 1, gap = azs[0] + 360 - azs[azs.length - 1];
+          for (let i = 0; i < azs.length - 1; i++) if (azs[i + 1] - azs[i] > gap) { gap = azs[i + 1] - azs[i]; gi = i; }
+          const az0 = azs[(gi + 1) % azs.length]; let az1 = azs[gi]; if (az1 < az0) az1 += 360;
+          focus = { az0, az1 };
+        }
+      } catch (e) { focus = null; }
+      let last = 0;
+      const update = () => {
+        if (tok !== loadTok) return;
+        const now = Date.now(); if (now - last < 250 && G.BLD.state === 'loading') return; last = now;      // redraw at most four times a second
+        pano.invalidate(); verdict(); map.request(); App.views.map && App.views.map.request();
+      };
+      G.BLD.load(site, focus, update).then(() => { last = 0; update(); });
+      setTimeout(verdict, 0);
+    }
     TS.ensureAround(site.lat, site.lon, 30).then(() => {
       if (tok !== loadTok) return; pano.invalidate(); verdict();
       return TS.ensureAround(site.lat, site.lon, 240);

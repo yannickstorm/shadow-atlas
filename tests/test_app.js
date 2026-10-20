@@ -33,7 +33,13 @@ async function mockServices(ctx, hits) {
     if (host === 'nominatim.openstreetmap.org') return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify([
       { lat: '36.0135', lon: '-5.6046', name: '', display_name: '12, Calle Sancho IV el Bravo, Tarifa, Cádiz, Andalusia, 11380, Spain', addresstype: 'building',
         address: { house_number: '12', road: 'Calle Sancho IV el Bravo', town: 'Tarifa', state: 'Andalusia', country: 'Spain' } }]) });
-    if (u.includes('/api/interpreter')) return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: fs.readFileSync(path.join(MOCK, 'overpass.json')) });
+    if (u.includes('/api/interpreter')) {
+      // the first request answers at once, later ones take 4 s: buildings toward the Sun must show before the rest arrives
+      const n = hits.overpassN = (hits.overpassN || 0) + 1;
+      hits.overpass = (hits.overpass || []).concat([decodeURIComponent((route.request().postData() || '').replace(/^data=/, '').replace(/\+/g, ' '))]);
+      const reply = () => route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: fs.readFileSync(path.join(MOCK, 'overpass.json')) });
+      return n === 1 ? reply() : new Promise(r => setTimeout(r, 4000)).then(reply).catch(() => {});
+    }
     return route.abort();      // fonts and anything else: not needed for the tests
   });
 }
@@ -86,7 +92,13 @@ async function page(browser, opts = {}) {
     check(/Sancho IV el Bravo 12, Tarifa/.test(st.name) && Math.abs(st.lat - 36.0135) < 1e-3, `site set to the address (${st.name})`);
     check(st.mode === 'flat' && st.zoom > 1000 && st.tiles, 'map zooms to street level with street tiles');
     check((hits['tile.openstreetmap.org'] || 0) > 0, 'OpenStreetMap street tiles requested');
-    await p.evaluate(() => App.setTab('horizon')); await p.waitForTimeout(5000);
+    await p.evaluate(() => App.setTab('horizon')); await p.waitForTimeout(1500);
+    const early = await p.evaluate(() => ({ state: BLD.state, n: BLD.list.length, verdict: document.querySelector('#hzVerdict').innerText }));
+    check(early.state === 'loading' && early.n > 0 && /Torre de prueba/.test(early.verdict), 'buildings toward the Sun show while the rest is still loading');
+    const firstPoly = (hits.overpass || [''])[0].match(/poly:"([^"]+)"/), pts = firstPoly ? firstPoly[1].trim().split(/\s+/).map(Number) : [];
+    let east = -1, west = 1; for (let i = 1; i < pts.length; i += 2) { east = Math.max(east, pts[i] + 5.6046); west = Math.min(west, pts[i] + 5.6046); }
+    check(east > 0.0015 && west > -0.0002, 'the first request covers only the Sun\'s direction (east of the site)');
+    await p.waitForTimeout(12000);
     const t = await p.evaluate(() => ({ q: TS.quality(App.S.site.lat, App.S.site.lon), n: TS.loaded || 0 }));
     check(t.q === 'fine' && t.n > 0, `detailed terrain loaded from elevation tiles (${t.n} cells)`);
     const bl = await p.evaluate(() => ({ state: BLD.state, n: BLD.list.length, home: BLD.list.filter(b => b.home).length, verdict: document.querySelector('#hzVerdict').innerText }));
