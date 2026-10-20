@@ -1,4 +1,5 @@
-/* Buildings around the site (OpenStreetMap via the Overpass API, live mode only).
+/* Buildings around the site (OpenStreetMap; live mode only). First from OpenFreeMap's vector tiles (pre-made,
+   served from a CDN), else from the Overpass API.
    Height comes from the building's height tag, else its number of floors, else a typical height for its type
    (marked as estimated). BLD.angleAt gives how high buildings rise above eye level in a direction. */
 (function (G) {
@@ -46,26 +47,133 @@ function sector(site, a0, a1, r0, r1) {
   return pts.map(p => p[0].toFixed(6) + ' ' + p[1].toFixed(6)).join(' ');
 }
 const inside = P => { let c = false; for (let i = 0, j = P.length - 1; i < P.length; j = i++) { const a = P[i], b = P[j]; if ((a[1] > 0) !== (b[1] > 0) && 0 < (b[0] - a[0]) * (0 - a[1]) / (b[1] - a[1]) + a[0]) c = !c; } return c; };
+function addBuilding(site, id, pts, hh, name, type, part) {
+  if (BLD.ids.has(id)) return false;
+  BLD.ids.add(id);
+  const cl = Math.cos(site.lat * D2R);
+  const xy = pts.map(p => [(p[1] - site.lon) * 111320 * cl, (p[0] - site.lat) * 110574]);      // metres east / north of the site
+  let cx = 0, cy = 0; for (const p of pts) { cx += p[0]; cy += p[1]; } cx /= pts.length; cy /= pts.length;
+  const b = { id, pts, xy, h: hh.h, minH: hh.minH, est: hh.est, name: name || '', type: type || 'building', part: !!part, base: G.TS ? G.TS.at(cx, cy) : 0, lat: cx, lon: cy };
+  b.home = inside(xy);              // the building you stand at (an address puts the site inside it) is not an obstacle
+  BLD.list.push(b);
+  if (b.home) return true;
+  // index by direction: the 1-degree azimuth buckets the footprint covers, seen from the site
+  const az = xy.map(p => Math.atan2(p[0], p[1]) * R2D);
+  let lo = az[0], hi = az[0]; const ref = az[0];
+  for (const v of az) { let d = v - ref; d -= 360 * Math.round(d / 360); const u = ref + d; if (u < lo) lo = u; if (u > hi) hi = u; }
+  for (let k = Math.floor(lo); k <= Math.floor(hi); k++) BLD.idx[((k % 360) + 360) % 360].push(b);
+  return true;
+}
 function addElements(site, j) {
-  const cl = Math.cos(site.lat * D2R); let n = 0;
+  let n = 0;
   for (const e of j.elements || []) {
-    if (BLD.ids.has(e.id) || !e.geometry || e.geometry.length < 3) continue;
+    if (!e.geometry || e.geometry.length < 3) continue;
     const t = e.tags || {}; if (t.building === 'no' || t.building === 'roof' && !t.height) continue;
-    BLD.ids.add(e.id);
-    const hh = heightOf(t), pts = e.geometry.map(g => [g.lat, g.lon]);
-    const xy = pts.map(p => [(p[1] - site.lon) * 111320 * cl, (p[0] - site.lat) * 110574]);      // metres east / north of the site
-    let cx = 0, cy = 0; for (const p of pts) { cx += p[0]; cy += p[1]; } cx /= pts.length; cy /= pts.length;
-    const b = { id: e.id, pts, xy, h: hh.h, minH: hh.minH, est: hh.est, name: t.name || '', type: t.building || t['building:part'] || 'building', part: !!t['building:part'], base: G.TS ? G.TS.at(cx, cy) : 0, lat: cx, lon: cy };
-    b.home = inside(xy);              // the building you stand at (an address puts the site inside it) is not an obstacle
-    BLD.list.push(b); n++;
-    if (b.home) continue;
-    // index by direction: the 1-degree azimuth buckets the footprint covers, seen from the site
-    const az = xy.map(p => Math.atan2(p[0], p[1]) * R2D);
-    let lo = az[0], hi = az[0], ref = az[0];
-    for (const v of az) { let d = v - ref; d -= 360 * Math.round(d / 360); const u = ref + d; if (u < lo) lo = u; if (u > hi) hi = u; }
-    for (let k = Math.floor(lo); k <= Math.floor(hi); k++) BLD.idx[((k % 360) + 360) % 360].push(b);
+    if (addBuilding(site, 'w' + e.id, e.geometry.map(g => [g.lat, g.lon]), heightOf(t), t.name, t.building || t['building:part'], t['building:part'])) n++;
   }
   return n;
+}
+
+/* ---------- OpenFreeMap vector tiles (fast: pre-made, served from a CDN) ---------- */
+// minimal Mapbox Vector Tile reader: only the "building" layer, polygons and two numeric properties
+function pbf(buf) {
+  let p = 0; const u8 = buf;
+  const varint = () => { let v = 0, s = 1, b; do { b = u8[p++]; v += (b & 0x7f) * s; s *= 128; } while (b & 0x80); return v; };
+  return {
+    get pos() { return p; }, set pos(v) { p = v; }, varint,
+    key() { const k = varint(); return [k >> 3, k & 7]; },
+    bytes() { const n = varint(), s = p; p += n; return u8.subarray(s, s + n); },
+    skip(w) { if (w === 0) varint(); else if (w === 1) p += 8; else if (w === 2) p += varint(); else if (w === 5) p += 4; },
+    f32() { const v = new DataView(u8.buffer, u8.byteOffset + p, 4).getFloat32(0, true); p += 4; return v; },
+    f64() { const v = new DataView(u8.buffer, u8.byteOffset + p, 8).getFloat64(0, true); p += 8; return v; },
+  };
+}
+const TD = new TextDecoder();
+function readValue(b) {
+  const r = pbf(b); let v = null;
+  while (r.pos < b.length) { const [f, w] = r.key();
+    if (f === 1) v = TD.decode(r.bytes()); else if (f === 2) v = r.f32(); else if (f === 3) v = r.f64();
+    else if (f === 4 || f === 5) v = r.varint(); else if (f === 6) { const z = r.varint(); v = z % 2 ? -(z + 1) / 2 : z / 2; } else if (f === 7) v = !!r.varint(); else r.skip(w); }
+  return v;
+}
+function buildingsFromTile(buf, z, x, y) {
+  const r = pbf(buf), out = [];
+  while (r.pos < buf.length) {
+    const [f, w] = r.key();
+    if (f !== 3) { r.skip(w); continue; }
+    const lb = r.bytes(), L = pbf(lb); let name = '', extent = 4096; const keys = [], vals = [], feats = [];
+    while (L.pos < lb.length) { const [g, w2] = L.key();
+      if (g === 1) name = TD.decode(L.bytes()); else if (g === 2) feats.push(L.bytes()); else if (g === 3) keys.push(TD.decode(L.bytes()));
+      else if (g === 4) vals.push(readValue(L.bytes())); else if (g === 5) extent = L.varint(); else L.skip(w2); }
+    if (name !== 'building') continue;
+    const N = 1 << z, toLL = (px, py) => { const X = (x + px / extent) / N, Y = (y + py / extent) / N; return [Math.atan(Math.sinh(Math.PI * (1 - 2 * Y))) * R2D, X * 360 - 180]; };
+    for (const fb of feats) {
+      const F = pbf(fb); let id = 0, type = 0, tags = [], geom = [];
+      while (F.pos < fb.length) { const [g, w3] = F.key();
+        if (g === 1) id = F.varint(); else if (g === 3) type = F.varint();
+        else if (g === 2 || g === 4) { const b = F.bytes(), q = pbf(b), arr = []; while (q.pos < b.length) arr.push(q.varint()); if (g === 2) tags = arr; else geom = arr; }
+        else F.skip(w3); }
+      if (type !== 3) continue;
+      const props = {}; for (let i = 0; i + 1 < tags.length; i += 2) props[keys[tags[i]]] = vals[tags[i + 1]];
+      // rings: MoveTo(1) LineTo(2) ClosePath(7); keep outer rings (positive area in tile coordinates)
+      let i = 0, cx = 0, cy = 0, ring = null;
+      const rings = [];
+      while (i < geom.length) {
+        const cmd = geom[i] & 7, cnt = geom[i] >> 3; i++;
+        if (cmd === 7) { if (ring) rings.push(ring); ring = null; continue; }
+        for (let k = 0; k < cnt; k++) {
+          const dx = geom[i++], dy = geom[i++]; cx += dx % 2 ? -(dx + 1) / 2 : dx / 2; cy += dy % 2 ? -(dy + 1) / 2 : dy / 2;
+          if (cmd === 1) ring = [[cx, cy]]; else ring.push([cx, cy]);
+        }
+      }
+      for (const R of rings) {
+        let a = 0; for (let k = 0, j = R.length - 1; k < R.length; j = k++) a += (R[j][0] - R[k][0]) * (R[j][1] + R[k][1]);
+        if (a <= 0 || R.length < 3) continue;          // a hole, or degenerate
+        const pts = R.map(p => toLL(p[0], p[1])); pts.push(pts[0]);
+        const h = +props.render_height, minH = +props.render_min_height || 0;
+        out.push({ id: 't' + z + '/' + x + '/' + y + '/' + id + '/' + R[0].join(','), pts, hh: { h: h > 0 ? Math.min(h, 400) : 8, minH, est: !(h > 0) || h === 5 } });
+      }
+    }
+  }
+  return out;
+}
+let tileUrl = null;
+async function tileTemplate(signal) {
+  if (tileUrl) return tileUrl;
+  const j = await fetch('https://tiles.openfreemap.org/planet', { signal }).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+  if (!j.tiles || !j.tiles[0]) throw new Error('no tile address');
+  return (tileUrl = j.tiles[0]);
+}
+async function loadTiles(site, focus, onUpdate, ac) {
+  const tpl = await tileTemplate(ac.signal), z = 14, N = 1 << z, R = BLD.radius;
+  const cl = Math.cos(site.lat * D2R), dLat = R / 110574, dLon = R / (111320 * cl);
+  const tx = lon => Math.floor((lon + 180) / 360 * N), ty = lat => { const s = Math.sin(lat * D2R); return Math.floor((0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * N); };
+  const tiles = [];
+  for (let x = tx(site.lon - dLon); x <= tx(site.lon + dLon); x++) for (let y = ty(site.lat + dLat); y <= ty(site.lat - dLat); y++) {
+    // priority: the tile under the site, then tiles toward the Sun/Moon, then the rest
+    const cLon = (x + 0.5) / N * 360 - 180, cLat = Math.atan(Math.sinh(Math.PI * (1 - 2 * (y + 0.5) / N))) * R2D;
+    const az = ((Math.atan2((cLon - site.lon) * cl, cLat - site.lat) * R2D) + 360) % 360;
+    let pri = 2; if (x === tx(site.lon) && y === ty(site.lat)) pri = 0;
+    else if (focus) { let m = ((focus.az0 + focus.az1) / 2) % 360, d = Math.abs(az - m); d = Math.min(d, 360 - d); if (d <= (focus.az1 - focus.az0) / 2 + 30) pri = 1; }
+    tiles.push({ x, y, pri });
+  }
+  tiles.sort((a, b) => a.pri - b.pri);
+  let ok = 0, fail = 0;
+  await Promise.all(tiles.map(async (t, i) => {
+    try {
+      const buf = new Uint8Array(await fetch(tpl.replace('{z}', z).replace('{x}', t.x).replace('{y}', t.y), { signal: ac.signal }).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.arrayBuffer(); }));
+      if (ac.signal.aborted) return;
+      const dl = R / 110574 * 1.1, dlo = R / (111320 * cl) * 1.1;
+      for (const b of buildingsFromTile(buf, z, t.x, t.y)) {
+        const c = b.pts[0]; if (Math.abs(c[0] - site.lat) > dl || Math.abs(c[1] - site.lon) > dlo) continue;
+        addBuilding(site, b.id, b.pts, b.hh, '', 'building', false);
+      }
+      ok++; if (t.pri <= 1 && tiles.filter(q => q.pri <= 1).length === ok) BLD.focusDone = true;
+      BLD.version++; if (onUpdate) onUpdate();
+    } catch (e) { if (!ac.signal.aborted) fail++; }
+  }));
+  if (!ok) throw new Error('no building tiles');
+  BLD.source = 'OpenFreeMap';
 }
 /* load the buildings around a site, the directions of the eclipse first (focus: {az0, az1}, degrees clockwise,
    az1 >= az0) and the rest of the circle after; onUpdate runs each time more buildings arrive */
@@ -77,6 +185,8 @@ BLD.load = async function (site, focus, onUpdate) {
   const ac = BLD.ac = new AbortController();
   Object.assign(BLD, { key, state: 'loading', list: [], ids: new Set(), idx: Array.from({ length: 360 }, () => []), site: { lat: site.lat, lon: site.lon }, focus: focus || null, focusDone: false, error: '' });
   BLD.version++;
+  try { await loadTiles(site, focus, onUpdate, ac); BLD.focusDone = true; BLD.state = 'ready'; BLD.version++; if (onUpdate) onUpdate(); return BLD.list; }
+  catch (e) { if (ac.signal.aborted) return BLD.list; BLD.list = []; BLD.ids = new Set(); BLD.idx = Array.from({ length: 360 }, () => []); BLD.focusDone = false; BLD.source = 'Overpass'; }
   const R = BLD.radius, phases = [];
   if (focus && focus.az1 - focus.az0 < 290) {
     const a0 = focus.az0 - 12, a1 = focus.az1 + 12, rest = 360 - (a1 - a0);

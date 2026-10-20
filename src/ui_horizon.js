@@ -106,7 +106,7 @@ App.initFns.push(function () {
     const bline = !G.LIVE ? 'Buildings: on the online version only (claude.ai blocks the map service).'
       : B.state === 'loading' ? (B.focusDone ? `Buildings toward the ${S.ev && S.ev.kind === 'lunar' ? 'Moon' : 'Sun'} loaded (${bs.n.toLocaleString('en-GB')}). Loading the rest of the circle…` : `Loading buildings toward the ${S.ev && S.ev.kind === 'lunar' ? 'Moon' : 'Sun'} first… ${bs.n ? bs.n.toLocaleString('en-GB') + ' so far.' : ''}`)
       : B.state === 'error' ? 'Buildings could not be loaded: OpenStreetMap (Overpass) did not answer. Try again later.'
-      : B.state === 'ready' ? (bs.n ? `Buildings within ${B.radius} m: ${bs.n.toLocaleString('en-GB')} from OpenStreetMap, ${bs.measured ? bs.measured.toLocaleString('en-GB') + ' with a recorded height, ' : ''}${bs.est.toLocaleString('en-GB')} estimated from their type. Trees are not included.` : `No buildings mapped within ${B.radius} m.`) : '';
+      : B.state === 'ready' ? (bs.n ? `Buildings within ${B.radius} m: ${bs.n.toLocaleString('en-GB')} from OpenStreetMap${B.source === 'OpenFreeMap' ? ' (OpenFreeMap tiles)' : ''}, ${bs.measured ? bs.measured.toLocaleString('en-GB') + ' with a recorded height, ' : ''}${bs.est.toLocaleString('en-GB')} estimated from their type. Trees are not included.` : `No buildings mapped within ${B.radius} m.`) : '';
     const qual = `<div class="hz-q">Terrain detail here: ${TS.resLabel(q)}${q === 'coarse' ? ' (no detailed terrain for this area)' : ''}</div>${bline ? `<div class="hz-q">${esc(bline)}</div>` : ''}`;
     if (!a || !a.atMax) { el.innerHTML = `<div class="hc-t">HORIZON CHECK</div><div class="hc-v">No eclipse visible from this site</div>${qual}`; return; }
     const m = a.atMax, body = a.body, tz = App.tz();
@@ -239,7 +239,7 @@ App.initFns.push(function () {
   /* ---- data loading and wiring ---- */
   let loadTok = 0;
   function loadAround(site) {
-    const tok = ++loadTok, ld = $('#hzLoading'); ld.hidden = false;
+    const tok = ++loadTok, ld = $('#hzLoading'); ld.hidden = false; let bldDone = Promise.resolve();
     if (G.BLD && G.LIVE) {
       // the directions the Sun or Moon takes during the eclipse are loaded first
       let focus = null;
@@ -258,12 +258,13 @@ App.initFns.push(function () {
         const now = Date.now(); if (now - last < 250 && G.BLD.state === 'loading') return; last = now;      // redraw at most four times a second
         pano.invalidate(); verdict(); map.request(); App.views.map && App.views.map.request();
       };
-      G.BLD.load(site, focus, update).then(() => { last = 0; update(); });
+      bldDone = G.BLD.load(site, focus, update).then(() => { last = 0; update(); });
       setTimeout(verdict, 0);
     }
     TS.ensureAround(site.lat, site.lon, 30).then(() => {
       if (tok !== loadTok) return; pano.invalidate(); verdict();
-      return TS.ensureAround(site.lat, site.lon, 240);
+      // far ridges after the buildings (or 6 s at most), so they do not compete for the connection
+      return Promise.race([bldDone, new Promise(r => setTimeout(r, 6000))]).then(() => tok === loadTok && TS.ensureAround(site.lat, site.lon, 240));
     }).then(() => { if (tok !== loadTok) return; ld.hidden = true; pano.invalidate(); verdict(); App.emit('terrain'); });
   }
   App.on('event', ev => {
